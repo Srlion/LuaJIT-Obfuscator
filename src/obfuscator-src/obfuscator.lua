@@ -1164,5 +1164,7 @@ while true do
         print("Error: " .. output)
     end
 
+    collectgarbage("collect")
+
     ::_continue_::
 end
