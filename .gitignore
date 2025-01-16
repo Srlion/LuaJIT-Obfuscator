@@ -9,3 +9,5 @@
 *.dmp
 *.swp
 .tags
+src/obfuscator/*
+!src/obfuscator/obfuscator.lua

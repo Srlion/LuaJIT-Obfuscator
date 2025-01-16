@@ -1,0 +1,45 @@
+name: Build
+
+on: push
+
+jobs:
+  now:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        os: [windows-2022, ubuntu-20.04]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Run on Linux
+        if: runner.os == 'Linux'
+        run: make
+
+      - name: Run on Windows
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: mingw32-make
+
+      - name: Windows Release
+        if: runner.os == 'Windows'
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          tag: Windows
+          artifacts: |
+            src/obfuscator.exe
+            src/obfuscator/obfuscator.lua
+
+      - name: Linux Release
+        if: runner.os == 'Linux'
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          tag: Linux
+          artifacts: |
+            src/obfuscator
+            src/obfuscator.lua

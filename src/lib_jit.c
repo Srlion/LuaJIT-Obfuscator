@@ -257,6 +257,20 @@ LJLIB_CF(jit_util_funcuvname)
   return 0;
 }
 
+/* local uv = jit.util.funcuv(func, idx) */
+/* Returns the uv value using proto_uv(pt)[idx] */
+LJLIB_CF(jit_util_funcuv)
+{
+  GCproto *pt = lj_lib_checkLproto(L, 1, 0);
+  uint32_t idx = (uint32_t)lj_lib_checkint(L, 2);
+  if (idx < pt->sizeuv) {
+    int32_t v = proto_uv(pt)[idx];
+    setintV(L->top++, v);
+    return 1;
+  }
+  return 0;
+}
+
 /* -- Reflection API for traces ------------------------------------------- */
 
 #if LJ_HASJIT

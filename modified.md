@@ -1,3 +1,36 @@
+# These are modified files to work with the obfuscator
+
+- `src/lib_jit.c` Added `jit.util.funcuv` to return the upvalue info of a proto
+
+```c
+LJLIB_CF(jit_util_funcuv)
+{
+  GCproto *pt = lj_lib_checkLproto(L, 1, 0);
+  uint32_t idx = (uint32_t)lj_lib_checkint(L, 2);
+  if (idx < pt->sizeuv) {
+    int32_t v = proto_uv(pt)[idx];
+    setintV(L->top++, v);
+    return 1;
+  }
+  return 0;
+}
+```
+
+- `src/luaconf.h` Increased stack size to a big number to avoid stack overflow when testing because stack size grows exponentially
+
+```c
+#define LUAI_MAXSTACK	65500 * 20	/* Max. # of stack slots for a thread (<64K). */
+```
+
+- `Makefile`:
+
+  - Enabled `-DLUAJIT_DISABLE_FFI` and `-DLUAJIT_ENABLE_LUA52COMPAT` flags
+  - Renamed executable to `obfuscate`(`.exe`)
+  - Enabled `BUILDMODE= static` to build a static executable
+
+- `src/luajit.c`
+
+```c
 /*
 ** LuaJIT frontend. Runs commands, scripts, read-eval-print (REPL) etc.
 ** Copyright (C) 2005-2025 Mike Pall. See Copyright Notice in luajit.h
@@ -114,3 +147,5 @@ int main()
   lua_close(L);
   return EXIT_SUCCESS;
 }
+
+```

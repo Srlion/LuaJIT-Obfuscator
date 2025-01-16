@@ -88,7 +88,8 @@
 #define LUA_QS		LUA_QL("%s")
 
 /* Various tunables. */
-#define LUAI_MAXSTACK	65500	/* Max. # of stack slots for a thread (<64K). */
+// Increased stack size to be able to handle the tests because output of obfusactor is huge
+#define LUAI_MAXSTACK	65500 * 20	/* Max. # of stack slots for a thread (<64K). */
 #define LUAI_MAXCSTACK	8000	/* Max. # of stack slots for a C func (<10K). */
 #define LUAI_GCPAUSE	200	/* Pause GC until memory is at 200%. */
 #define LUAI_GCMUL	200	/* Run GC at 200% of allocation speed. */
