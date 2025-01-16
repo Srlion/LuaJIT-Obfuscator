@@ -136,9 +136,9 @@ int main()
   if (dofile(L, "obfuscator.lua") != 0)
   {
     /* Try loading obfuscator/obfuscator.lua */
-    if (dofile(L, "obfuscator/obfuscator.lua") != 0)
+    if (dofile(L, "obfuscator-src/obfuscator.lua") != 0)
     {
-      l_message("Error: could not load either obfuscator.lua or obfuscator/obfuscator.lua");
+      l_message("Error: could not load either obfuscator.lua or obfuscator-src/obfuscator.lua");
       lua_close(L);
       return EXIT_FAILURE;
     }

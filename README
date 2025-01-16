@@ -8,7 +8,7 @@ It is not perfect but can waste some time for someone who wants to read your cod
 
 ## Usage
 
-`obfuscator`(`.exe`) needs `obfuscator.lua`/`obfuscator/obfuscator.lua` to run, you feed it input using stdin and it will output the obfuscated code to stdout.
+`obfuscator`(`.exe`) needs `obfuscator.lua`/`obfuscator-src/obfuscator.lua` to run, you feed it input using stdin and it will output the obfuscated code to stdout.
 
 You can pass `-n` where `n` is the number of times you want to run the obfuscator on the output. Please don't try to go over 2 as output is already huge just for couple of lines of code. Eg. "-2" will run the obfuscator twice on the output.
 
