@@ -17,28 +17,36 @@ jobs:
 
       - name: Run on Linux
         if: runner.os == 'Linux'
-        run: make
+        run: |
+          make
+          tar -czf obfuscator.tar.gz -C src obfuscate -C obfuscator-src obfuscator.lua
+
+      - name: Setup cygwin
+        if: runner.os == 'Windows'
+        uses: cygwin/cygwin-install-action@master
 
       - name: Run on Windows
         if: runner.os == 'Windows'
-        run: mingw32-make
+        shell: cmd
+        run: |
+          bash -c "make --version"
+          bash -c "make"
+          tar -czf obfuscator.tar.gz -C src obfuscate.exe -C obfuscator-src obfuscator.lua
 
       - name: Windows Release
         if: runner.os == 'Windows'
-        uses: ncipollo/release-action@v1
+        uses: softprops/action-gh-release@v2
         with:
-          allowUpdates: true
-          tag: Windows
-          artifacts: |
-            src/obfuscator.exe
-            src/obfuscator-src/obfuscator.lua
+          tag_name: Windows
+          make_latest: true
+          files: |
+            obfuscator.tar.gz
 
       - name: Linux Release
         if: runner.os == 'Linux'
-        uses: ncipollo/release-action@v1
+        uses: softprops/action-gh-release@v2
         with:
-          allowUpdates: true
-          tag: Linux
-          artifacts: |
-            src/obfuscator
-            src/obfuscator-src/obfuscator.lua
+          tag_name: Linux
+          make_latest: true
+          files: |
+            obfuscator.tar.gz
