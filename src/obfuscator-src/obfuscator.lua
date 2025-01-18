@@ -1,3 +1,5 @@
+math.randomseed(tostring(function() end):sub(11))
+
 local bit = require("bit")
 local jit_util = require("jit.util")
 local buffer = require("string.buffer")
@@ -61,24 +63,52 @@ local get_uv_info; do
 end
 
 local GET_RANDOM_NAME; do
-    math.randomseed(tostring(function() end):sub(11))
-
     local invs_chars = {
-        "˝",
         "ˏ",
-        "˵",
-        "૰",
-        "♯",
-        "‗",
-        "⁣",
         "​",
+        "​",
+        "​",
+        "​",
+        "😶‍🌫️",
+        "😎",
+        "🥳",
+        "🤡",
+        "🕵️",
+        "🧐",
+        "😡",
+        "💩",
+        "🦾",
+        "👀",
+        "🫵🏽",
+        "🐤",
+        "🐰",
+        "🐷",
+        "🐭",
+        "❄️",
+        "🍉",
+        "🦴",
+        "🎱",
+        "⚽️",
+        "🎖",
+        "🍪",
+        "🍔",
+        "🩻",
+        "😵‍💫",
+        "🫥",
+        "🫠",
+        "🙂‍↔️",
+        "🙂‍↕️",
+        "🔴",
+        "🟠"
     }
 
     local USED_NAMES = {}
     local CACHED_IDS = {}
 
+    local current_id = math.random(1, #invs_chars)
     local random_name = function()
-        return invs_chars[math.random(1, #invs_chars)]
+        current_id = (current_id % #invs_chars) + 1
+        return invs_chars[current_id]
     end
 
     function GET_RANDOM_NAME(id)
@@ -86,16 +116,9 @@ local GET_RANDOM_NAME; do
             return CACHED_IDS[id]
         end
 
-        local count = id
-        if type(id) ~= number then
-            count = #tostring(id)
-        end
-
         local unique_name = ""
         repeat
-            for i = 1, count do
-                unique_name = unique_name .. random_name()
-            end
+            unique_name = unique_name .. random_name()
         until USED_NAMES[unique_name] == nil
 
         CACHED_IDS[id] = unique_name
@@ -380,7 +403,7 @@ do
     -- Comparison Ops
     local function CompOP(self, var, op, val)
         var = self:GetLocal(var)
-        self:WriteP("if({var}{op}{val})then;", {
+        self:WriteP("if({var}{op}{val})then ", {
             var = var,
             op = op,
             val = val,
@@ -452,7 +475,7 @@ do
     -- Unary Test and Copy Ops
     function OPS:ISTC(a, b, c, d)
         -- Copy D to A and jump, if D is true
-        self:WriteP("if({d})then;{a}={d};", {
+        self:WriteP("if({d})then {a}={d};", {
             a = self:GetLocal(a),
             d = self:GetLocal(d),
         })
@@ -462,7 +485,7 @@ do
 
     function OPS:ISFC(a, b, c, d)
         -- Copy D to A and jump, if D is false
-        self:WriteP("if(not {d})then;{a}={d};", {
+        self:WriteP("if(not {d})then {a}={d};", {
             a = self:GetLocal(a),
             d = self:GetLocal(d),
         })
@@ -472,7 +495,7 @@ do
 
     function OPS:IST(a, b, c, d)
         -- Copy D to A and jump, if D is true
-        self:WriteP("if({d})then;", {
+        self:WriteP("if({d})then ", {
             a = self:GetLocal(a),
             d = self:GetLocal(d),
         })
@@ -482,7 +505,7 @@ do
 
     function OPS:ISF(a, b, c, d)
         -- Copy D to A and jump, if D is false
-        self:WriteP("if(not {d})then;", {
+        self:WriteP("if(not {d})then ", {
             a = self:GetLocal(a),
             d = self:GetLocal(d),
         })
@@ -771,7 +794,7 @@ do
     function OPS:TSETM(a, b, c, d)
         local start = self:GetNConst(d) - 2^52 -- the lowest 32 bits from the mantissa are used as a starting table index
         local i = self:Name("TSETM_i")
-        self:WriteP("for {i}=0,{multires}-1 do;", {
+        self:WriteP("for {i}=0,{multires}-1 do ", {
             i = i,
             multires = self:Name("multires"),
         })
@@ -844,7 +867,7 @@ do
             args = table.concat(args, ","),
         })
 
-        self:Writef("do;return %s(%s,1,%s);end;", self:GetFuncName("unpack"), self:Name("returns"), self:Name("multires"))
+        self:Writef("do return %s(%s,1,%s);end;", self:GetFuncName("unpack"), self:Name("returns"), self:Name("multires"))
     end
     OPS.CALLMT = OPS.CALLT
 
@@ -887,7 +910,7 @@ do
         for i = a, a + d - 1 do
             rets = rets .. self:GetLocal(i) .. ","
         end
-        self:Writef("do;return %s", rets)
+        self:Writef("do return %s", rets)
         self:Writef("%s(%s,1,%s);", self:GetFuncName("unpack"), self:Name("returns"), self:Name("multires"))
         self:Write("end;")
     end
@@ -898,16 +921,16 @@ do
             rets = rets .. self:GetLocal(i) .. ","
         end
         rets = rets:sub(1, -2) -- remove last comma
-        self:Writef("do;return %s", rets)
+        self:Writef("do return %s", rets)
         self:Write("end;")
     end
 
     function OPS:RET0(a, b, c, d)
-        self:Write("do;return;end;")
+        self:Write("do return;end;")
     end
 
     function OPS:RET1(a, b, c, d)
-        self:WriteP("do;return {a};end;", {
+        self:WriteP("do return {a};end;", {
             a = self:GetLocal(a),
         })
     end
@@ -920,15 +943,15 @@ do
         local i_iter = self:GetLocal(a + 3)
         self:SetLocal(a + 3, start)
 
-        self:Writef("if(%s>0)then;", step)
-            self:WriteP("if({i_iter}>{ending})then;", {
+        self:Writef("if(%s>0)then ", step)
+            self:WriteP("if({i_iter}>{ending})then ", {
                 i_iter = i_iter,
                 ending = ending,
             })
                 OPS.JMP(self, 0, 0, 0, d)
             self:Write("end;")
-        self:Write("else;")
-            self:WriteP("if({step}<0)and({i_iter}<{ending})then;", {
+        self:Write("else ")
+            self:WriteP("if({step}<0)and({i_iter}<{ending})then ", {
                 step = step,
                 i_iter = i_iter,
                 ending = ending,
@@ -945,17 +968,17 @@ do
         local i_iter = self:GetLocal(a + 3)
         self:SetLocal(a + 3, i_iter .. "+" .. step)
 
-        self:WriteP("if({step}>0)then;", {
+        self:WriteP("if({step}>0)then ", {
             step = step,
         })
-            self:WriteP("if({i_iter}<=({ending}))then;", {
+            self:WriteP("if({i_iter}<=({ending}))then ", {
                 i_iter = i_iter,
                 ending = ending,
             })
                 OPS.JMP(self, 0, 0, 0, d)
             self:Write("end;")
-        self:Write("else;")
-            self:WriteP("if({step}<0)and({i_iter}>=({ending}))then;", {
+        self:Write("else ")
+            self:WriteP("if({step}<0)and({i_iter}>=({ending}))then ", {
                 step = step,
                 i_iter = i_iter,
                 ending = ending,
@@ -972,7 +995,7 @@ do
 
     -- Loops and branches Ops
     function OPS:ITERL(a, b, c, d)
-        self:Writef("if(%s~=nil)then;", self:GetLocal(a))
+        self:Writef("if(%s~=nil)then ", self:GetLocal(a))
         self:SetLocal(a - 1, self:GetLocal(a))
         OPS.JMP(self, 0, 0, 0, d)
         self:Write("end;")
