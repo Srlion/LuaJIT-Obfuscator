@@ -9,7 +9,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        os: [windows-2022, ubuntu-20.04]
+        os: [windows-2022, ubuntu-22.04]
 
     steps:
       - name: Check out code
