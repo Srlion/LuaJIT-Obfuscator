@@ -84,7 +84,19 @@ static int dofile(lua_State *L, const char *name)
   return report(L, status);
 }
 
-int main()
+static void createargtable(lua_State *L, char **argv, int argc, int script)
+{
+  int i;
+  lua_createtable(L, argc - script, script);
+  for (i = 0; i < argc; i++)
+  {
+    lua_pushstring(L, argv[i]);
+    lua_rawseti(L, -2, i - script);
+  }
+  lua_setglobal(L, "arg");
+}
+
+int main(int argc, char **argv)
 {
   lua_State *L;
   L = lua_open();
@@ -98,6 +110,11 @@ int main()
   /* We don't care as we will obfuscate and exit. (acting like an arena allocator) */
   lua_gc(L, LUA_GCSTOP, 0);
   luaL_openlibs(L);
+
+  if (argc > 0)
+    progname = argv[0];
+
+  createargtable(L, argv, argc, 1);
 
   /* Try loading obfuscator.lua */
   if (dofile(L, "obfuscator.lua") != 0)
