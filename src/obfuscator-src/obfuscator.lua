@@ -185,6 +185,22 @@ local function Obfuscator(proto, parent)
         }
     end
 
+    local boxed = {}
+    info.boxed = boxed
+    for pc = 0, info.bytecodes - 1 do
+        local ins = instructions[pc]
+        if ins.op_name == "FNEW" then
+            local childproto = jit_util.funck(proto, -ins.d - 1)
+            local cinfo = jit_util.funcinfo(childproto)
+            for uv = 0, cinfo.upvalues - 1 do
+                local uvinfo = get_uv_info(childproto, uv)
+                if uvinfo.is_local then
+                    boxed[uvinfo.slot_id] = true
+                end
+            end
+        end
+    end
+
     info:Setup()
 
     return info
@@ -242,6 +258,12 @@ end
 function METHODS:Setup()
     -- Locals
     self:Writef("local %s={};", self:Name("locals"))
+    -- Pre-create boxes for captured slots so writes to locals[i][1] are valid
+    if self.boxed then
+        for slot in pairs(self.boxed) do
+            self:Writef("%s[%d]={};", self:Name("locals"), slot)
+        end
+    end
     -- Returns (CALL, CALLT, CALLM, CALLMT, VARG)
     self:Writef("local %s={};", self:Name("returns"))
     self:Writef("local %s=0;", self:Name("multires"))
@@ -309,16 +331,26 @@ function METHODS:Name(key, no_id)
     return "_" .. self.id .. key
 end
 
+function METHODS:IsBoxed(idx)
+    -- only numeric stack slots can be captured/boxed
+    return type(idx) == "number" and self.boxed and self.boxed[idx]
+end
+
 function METHODS:GetLocal(idx)
     local tpy = type(idx)
     if tpy == "number" or tpy == "boolean" then
         idx = idx -- do nothing
     elseif tpy == "string" then
         idx = "\"" .. idx .. "\""
+        return self:Name("locals") .. "[" .. idx .. "]"
     else
         error("invalid index type: " .. tpy)
     end
-    return self:Name("locals") .. "[" .. idx .. "]"
+    local base = self:Name("locals") .. "[" .. idx .. "]"
+    if self:IsBoxed(idx) then
+        return base .. "[1]"
+    end
+    return base
 end
 
 function METHODS:SetLocal(idx, val)
@@ -669,18 +701,17 @@ do
     end
 
     function OPS:UCLO(a, b, c, d)
-        -- probably not needed? time will tell if bugs arise
-        -- local locals = self:Name("locals")
-        -- local tmp = self:Name("tmp_locals")
-        -- self:Writef("local %s={};", tmp)
-        -- for i = 0, self.stackslots - 1 do
-        --     if not self.uvs[i] then
-        --         self:Writef("%s[%d]=%s[%d];", tmp, i, locals, i)
-        --         self:Writef("%s[%d]=nil;", locals, i) -- remove the local
-        --     end
-        -- end
-        -- self:Writef("%s=%s;", locals, tmp)
-        -- self:Writef("%s=nil;", tmp)
+        -- Close upvalues for slots >= a: give each captured slot a FRESH box
+        -- carrying its current value. Closures made in earlier iterations keep
+        -- their old box (old value); the next iteration writes into the new one.
+        if self.boxed then
+            for slot in pairs(self.boxed) do
+                if slot >= a then
+                    local box = self:Name("locals") .. "[" .. slot .. "]"
+                    self:Writef("%s={%s[1]};", box, box)
+                end
+            end
+        end
         OPS.JMP(self, 0, 0, 0, d)
     end
 
