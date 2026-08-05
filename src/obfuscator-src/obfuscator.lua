@@ -361,7 +361,11 @@ end
 function METHODS:GetUV(idx)
     local uvinfo = get_uv_info(self.proto, idx)
     if uvinfo.is_local then
-        return (self.parent:GetLocal(uvinfo.slot_id))
+        local slot = uvinfo.slot_id
+        if self.captured_boxes and self.captured_boxes[slot] then
+            return self.captured_boxes[slot] .. "[1]"
+        end
+        return (self.parent:GetLocal(slot))
     end
     return (self.parent:GetUV(uvinfo.slot_id))
 end
@@ -718,6 +722,17 @@ do
     function OPS:FNEW(a, b, c, d)
         local proto = self:GetGCConst(d)
         local obf = Obfuscator(proto, self)
+
+        obf.captured_boxes = {}
+        for uv = 0, obf.upvalues - 1 do
+            local uvinfo = get_uv_info(proto, uv)
+            if uvinfo.is_local and self:IsBoxed(uvinfo.slot_id) then
+                local alias = self:Name("cap_" .. self.pc .. "_" .. uvinfo.slot_id)
+                self:Writef("local %s=%s[%d];", alias, self:Name("locals"), uvinfo.slot_id)
+                obf.captured_boxes[uvinfo.slot_id] = alias
+            end
+        end
+
         if DEBUGGING then
             print("NEW-SCOPE " .. obf.id)
         end
