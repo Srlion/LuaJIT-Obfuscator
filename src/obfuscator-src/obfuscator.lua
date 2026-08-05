@@ -1159,82 +1159,268 @@ end
 --     end
 -- end
 
+local CHUNK_LIMIT = 60000
+
+local function read_file(fn)
+    local f, err = io.open(fn, "rb")
+    if not f then return nil, err end
+    local data = f:read("*a")
+    f:close()
+    return data
+end
+
 local function write_file(fn, data)
     local f, err = io.open(fn, "w")
-    if not f then
-        return false, err
-    end
+    if not f then return false, err end
     f:write(data)
     f:close()
     return true
 end
 
--- write_file("obfuscator/obfuscated.lua", obf:Dump())
+local function ensure_dir(path)
+    local dir = path:match("^(.*)[/\\][^/\\]*$")
+    if not dir or dir == "" then return end
+    os.execute(([[mkdir "%s" 2>nul || mkdir -p "%s" 2>/dev/null]]):format(dir, dir))
+end
+
+local function obfuscate_string(code, n)
+    local proto, err = loadstring(code)
+    if not proto then return false, "compile error: " .. tostring(err) end
+    local obf = Obfuscator(proto)
+    obf:Start()
+    local output = obf:Dump()
+    if n and n > 1 then return obfuscate_string(output, n - 1) end
+    return true, output
+end
+
+local function safe_level(code)
+    local level = 0
+    while code:find("]" .. string.rep("=", level) .. "]", 1, true) do
+        level = level + 1
+    end
+    return level
+end
+
+local function safe_close(slice, base_eq)
+    local tail = slice:match("(%]=*)$")   -- trailing ']' followed by k '='
+    if not tail then return base_eq end
+    local k = #tail - 1                    -- number of '=' after the ']'
+    if k <= #base_eq then
+        return base_eq .. string.rep("=", k - #base_eq + 1)
+    end
+    return base_eq
+end
+
+local function split_output(code, head_name, client)
+    local function cslua(names)
+        if not client then return "" end
+        local t = { "if SERVER then\n" }
+        for _, n in ipairs(names) do
+            t[#t + 1] = ("    AddCSLuaFile(%q)\n"):format(n)
+        end
+        t[#t + 1] = "end\n"
+        return table.concat(t)
+    end
+
+    if #code <= CHUNK_LIMIT then
+        if client then
+            local self_name = head_name:match("[^/\\]+$")
+            return { { name = head_name, data = cslua({ self_name }) .. code } }
+        end
+        return { { name = head_name, data = code } }
+    end
+
+    local base_eq = string.rep("=", safe_level(code))
+
+    local budget = CHUNK_LIMIT - 32
+    local raw = budget - 16          -- headroom for "return [==[\n" ... "]==]"
+    local files, names = {}, {}
+    local pos = 1
+    while pos <= #code do
+        local last = math.min(pos + raw - 1, #code)
+        local slice = code:sub(pos, last)
+        local eq = safe_close(slice, base_eq)
+        local n = #files + 1
+        local pname = head_name:gsub("%.lua$", "") .. ("_part%d.lua"):format(n)
+        files[n] = { name = pname, data = "return [" .. eq .. "[\n" .. slice .. "]" .. eq .. "]" }
+        names[n] = pname:match("[^/\\]+$")
+        pos = last + 1
+    end
+
+    local head = {}
+    head[#head + 1] = cslua(names)
+    head[#head + 1] = "local _dir = ''"
+    head[#head + 1] = "local _s = debug and debug.getinfo and debug.getinfo(1, 'S')"
+    head[#head + 1] = "if _s and _s.source and _s.source:sub(1,1) == '@' then _dir = _s.source:sub(2):match('^(.*[/\\\\])') or '' end"
+    head[#head + 1] = "local _load = function(p)"
+    head[#head + 1] = "    if include then return include(p) end"
+    head[#head + 1] = "    local c = assert((loadfile or load)(_dir .. p), 'cannot load '..p)"
+    head[#head + 1] = "    return c()"
+    head[#head + 1] = "end"
+    head[#head + 1] = "local _parts = {"
+    for _, pn in ipairs(names) do
+        head[#head + 1] = ("    %q,"):format(pn)
+    end
+    head[#head + 1] = "}"
+    head[#head + 1] = "local _c = {}"
+    head[#head + 1] = "for _i = 1, #_parts do _c[_i] = _load(_parts[_i]) or '' end"
+    head[#head + 1] = "local _src = table.concat(_c)"
+    head[#head + 1] = "local _fn = (CompileString or loadstring or load)(_src, 'obf')"
+    head[#head + 1] = "if _fn then return _fn() end"
+
+    table.insert(files, 1, { name = head_name, data = table.concat(head, "\n") })
+    return files
+end
+
+local function process_file(in_path, opts)
+    local code, err = read_file(in_path)
+    if not code then return false, "read error: " .. tostring(err) end
+
+    local ok, out = obfuscate_string(code, opts.n)
+    if not ok then return false, out end
+
+    local base = in_path:match("[^/\\]+$"):gsub("%.lua$", "")
+    local head_name = (opts.out_dir or ".") .. "/" .. base .. ".obf.lua"
+
+    local files = split_output(out, head_name, opts.client)
+    ensure_dir(head_name)
+    for _, file in ipairs(files) do
+        local wok, werr = write_file(file.name, file.data)
+        if not wok then return false, "write error (" .. file.name .. "): " .. tostring(werr) end
+        io.write(("  -> %s (%d bytes)\n"):format(file.name, #file.data))
+    end
+    return true, #files
+end
+
+local function prog_name()
+    local p = (arg and arg[0]) or "obfuscate"
+    return p:match("[^/\\]+$") or p
+end
+
+local function print_help()
+    local prog = prog_name()
+    print(([[
+LuaJIT bytecode obfuscator
+
+USAGE
+  %s [options] <file1.lua> [file2.lua ...]   obfuscate one or more files
+  %s [options]                               interactive mode (no files given)
+
+OPTIONS
+  -n <num>        Extra obfuscation passes    (default 1)
+  -o, --out <dir> Output directory            (default: current dir)
+  -h, --help      Show this help
+  -c, --client    Emit AddCSLuaFile() for parts (GMod, no-op elsewhere)
+
+EXAMPLES
+  %s mycode.lua
+  %s -o build sh_main.lua sv_logic.lua
+  %s -n 2 secret.lua
+
+NOTES
+  Output over %dKB is auto-split into part files and reassembled at load
+  time. Reassembly uses include() under GMod, loadfile otherwise. Under
+  GMod you must AddCSLuaFile() each part for clientside code.]]):format(
+        prog, prog, prog, prog, prog, math.floor(CHUNK_LIMIT / 1000)))
+end
+
+local argv = arg or {}
+local start_idx = 1
+do
+    local a0 = argv[0]
+    if a0 then
+        local base = a0:match("[^/\\]+$") or a0
+        if not base:match("^obfuscate") then start_idx = 0 end
+    end
+end
+
+local function parse_args(t, from)
+    local opts = { n = 1, inputs = {}, out_dir = nil }
+    local last = 0
+    for k in pairs(t) do
+        if type(k) == "number" and k > last then last = k end
+    end
+    local i = from or 1
+    while i <= last do
+        local a = t[i]
+        if a ~= nil then
+            if a == "-n" then
+                i = i + 1; opts.n = tonumber(t[i]) or 1
+            elseif a == "-o" or a == "--out" then
+                i = i + 1; opts.out_dir = t[i]
+            elseif a == "-h" or a == "--help" then
+                opts.help = true
+            elseif a == "-c" or a == "--client" then
+                opts.client = true
+            else
+                opts.inputs[#opts.inputs + 1] = a
+            end
+        end
+        i = i + 1
+    end
+    return opts
+end
+
+local opts = parse_args(argv, start_idx)
+
+if opts.help then
+    print_help()
+    return
+end
+
+if #opts.inputs > 0 then
+    local total, failed = 0, 0
+    for _, in_path in ipairs(opts.inputs) do
+        io.write(("Obfuscating %s ...\n"):format(in_path))
+        local ok, res = process_file(in_path, opts)
+        if ok then
+            total = total + res
+        else
+            failed = failed + 1
+            io.write("  [ERROR] " .. tostring(res) .. "\n")
+        end
+        collectgarbage("collect")
+    end
+    io.write(("\nDone. %d file(s) written, %d input(s) failed.\n"):format(total, failed))
+    return
+end
+
+print(("%s - interactive mode"):format(prog_name()))
+print("Commands: -n <num>, -o <file>, q/quit")
 
 local OBFUSCATE_TIMES = 1
 local OUTPUT_FILE
 
-local function obfuscate_code(code, n)
-    local proto, err = loadstring(code)
-    if not proto then
-        return false, err
-    end
-    local obf = Obfuscator(loadstring(code))
-    obf:Start()
-    local output = obf:Dump()
-    if n > 1 then
-        return obfuscate_code(output, n - 1)
-    end
-    return true, output
-end
-
-print("Enter code to obfuscate:")
-print("Enter -n <number> to set the extra obfuscation level (e.g. -n 2)")
-print("Enter -o <file_name> to write the obfuscated code to a file (e.g. -o obfuscated.lua) (make sure directory exists!)")
-
 while true do
     local line = io.read()
-    if not line then
-        break
-    end
-
-    if line == "quit" or line == "exit" or line == "q" then
-        break
-    end
+    if not line or line == "quit" or line == "exit" or line == "q" then break end
 
     if line:match("^%-n%s+%d+$") then
-        local n = tonumber(line:match("%d+"))
-        if n then
-            OBFUSCATE_TIMES = n
-        end
-        print("Extra obfuscation level set to " .. n)
-        goto _continue_
+        OBFUSCATE_TIMES = tonumber(line:match("%d+"))
+        print("Obfuscation passes: " .. OBFUSCATE_TIMES)
+        goto continue
+    elseif line:match("^%-o%s+.+$") then
+        OUTPUT_FILE = line:match("%-o%s+(.+)")
+        print("Next output -> " .. OUTPUT_FILE)
+        goto continue
     end
 
-    if line:match("^%-o%s+.+$") then
-        local filename = line:match("%-o%s+(.+)")
-        print("Writing obfuscated code to `" .. filename .. "`")
-        OUTPUT_FILE = filename
-        goto _continue_
-    end
-
-    local status, output = obfuscate_code(line, OBFUSCATE_TIMES)
-    if status then
+    local ok, output = obfuscate_string(line, OBFUSCATE_TIMES)
+    if ok then
         if OUTPUT_FILE then
-            local status, err = write_file(OUTPUT_FILE, output)
-            if not status then
-                print("Error writing file: " .. err)
-            else
-                print("Obfuscated code written to " .. OUTPUT_FILE)
+            for _, f in ipairs(split_output(output, OUTPUT_FILE)) do
+                ensure_dir(f.name)
+                local wok, werr = write_file(f.name, f.data)
+                print(wok and ("Wrote " .. f.name) or ("Error: " .. werr))
             end
+            OUTPUT_FILE = nil
         else
             print(output)
         end
     else
         print("Error: " .. output)
     end
-
     collectgarbage("collect")
 
-    ::_continue_::
+    ::continue::
 end
