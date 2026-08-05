@@ -263,10 +263,6 @@ function METHODS:Setup()
         for slot in pairs(self.boxed) do
             self:Writef("%s[%d]={};", self:Name("locals"), slot)
         end
-        -- predeclare capture aliases (before any label, so no goto crosses them)
-        for slot in pairs(self.boxed) do
-            self:Writef("local %s;", self:Name("cap_" .. slot))
-        end
     end
     -- Returns (CALL, CALLT, CALLM, CALLMT, VARG)
     self:Writef("local %s={};", self:Name("returns"))
@@ -726,46 +722,47 @@ do
     function OPS:FNEW(a, b, c, d)
         local proto = self:GetGCConst(d)
         local obf = Obfuscator(proto, self)
-
+        -- Collect boxed slots this child captures; give each a param name.
         obf.captured_boxes = {}
+        local params_list, args_list = {}, {}
         for uv = 0, obf.upvalues - 1 do
             local uvinfo = get_uv_info(proto, uv)
             if uvinfo.is_local and self:IsBoxed(uvinfo.slot_id) then
-                local alias = self:Name("cap_" .. uvinfo.slot_id)
-                self:Writef("%s=%s[%d];", alias, self:Name("locals"), uvinfo.slot_id)
-                obf.captured_boxes[uvinfo.slot_id] = alias
+                local pname = self:Name("cap_" .. self.pc .. "_" .. uvinfo.slot_id)
+                obf.captured_boxes[uvinfo.slot_id] = pname
+                table.insert(params_list, pname)
+                table.insert(args_list, ("%s[%d]"):format(self:Name("locals"), uvinfo.slot_id))
             end
         end
-
-        if DEBUGGING then
-            print("NEW-SCOPE " .. obf.id)
-        end
+        if DEBUGGING then print("NEW-SCOPE " .. obf.id) end
         obf:Start()
-
-        self:Writef("%s=function(", self:GetLocal(a))
+    
+        local wrap = #params_list > 0
+        if wrap then
+            self:Writef("%s=(function(%s)return function(",
+                self:GetLocal(a), table.concat(params_list, ","))
+        else
+            self:Writef("%s=function(", self:GetLocal(a))
+        end
+    
         local max = obf.params - 1
         for i = 0, max do
             self:Writef("%s", obf:Name("params" .. i))
-            if i < max then
-                self:Write(",")
-            end
+            if i < max then self:Write(",") end
         end
         if obf.isvararg then
-            if max > -1 then
-                self:Write(",...")
-            else
-                self:Write("...")
-            end
+            self:Write(max > -1 and ",..." or "...")
         end
-
         self:Write(")")
-
-        local code = obf:Dump()
-        self:Write(code)
+    
+        self:Write(obf:Dump())
         self:Write("end;")
-        if DEBUGGING then
-            print("END-SCOPE " .. obf.id)
+    
+        if wrap then
+            self:Writef("end)(%s);", table.concat(args_list, ","))
         end
+    
+        if DEBUGGING then print("END-SCOPE " .. obf.id) end
     end
     -- End Upvalue and Function Ops
 
