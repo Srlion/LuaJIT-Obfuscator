@@ -263,6 +263,10 @@ function METHODS:Setup()
         for slot in pairs(self.boxed) do
             self:Writef("%s[%d]={};", self:Name("locals"), slot)
         end
+        -- predeclare capture aliases (before any label, so no goto crosses them)
+        for slot in pairs(self.boxed) do
+            self:Writef("local %s;", self:Name("cap_" .. slot))
+        end
     end
     -- Returns (CALL, CALLT, CALLM, CALLMT, VARG)
     self:Writef("local %s={};", self:Name("returns"))
@@ -727,8 +731,8 @@ do
         for uv = 0, obf.upvalues - 1 do
             local uvinfo = get_uv_info(proto, uv)
             if uvinfo.is_local and self:IsBoxed(uvinfo.slot_id) then
-                local alias = self:Name("cap_" .. self.pc .. "_" .. uvinfo.slot_id)
-                self:Writef("local %s=%s[%d];", alias, self:Name("locals"), uvinfo.slot_id)
+                local alias = self:Name("cap_" .. uvinfo.slot_id)
+                self:Writef("%s=%s[%d];", alias, self:Name("locals"), uvinfo.slot_id)
                 obf.captured_boxes[uvinfo.slot_id] = alias
             end
         end
